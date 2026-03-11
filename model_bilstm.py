@@ -26,12 +26,34 @@ class BiLSTM(nn.Module):
     def __init__(self, vocab_size, embed_dim, hidden_dim, num_classes,
                  num_layers=2, dropout=0.5, pretrained_embeddings=None):
         super().__init__()
-        # TODO: define embedding, lstm, dropout, fc layers
-        raise NotImplementedError
+        
+        self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=0)
+        if pretrained_embeddings is not None:
+            self.embedding.weight.data.copy_(pretrained_embeddings)
+
+        self.lstm = nn.LSTM(
+            input_size=embed_dim,
+            hidden_size=hidden_dim,
+            num_layers=num_layers,
+            batch_first=True,
+            bidirectional=True,
+            dropout=dropout if num_layers > 1 else 0.0
+        )
+
+        self.dropout = nn.Dropout(dropout)
+        self.fc = nn.Linear(hidden_dim * 2, num_classes)
 
     def forward(self, x):
-        # TODO: implement forward pass
-        raise NotImplementedError
+        emb = self.embedding(x)                       # (batch, seq_len, embed_dim)
+        _, (hidden, _) = self.lstm(emb)
+
+        # hidden shape: (num_layers * 2, batch, hidden_dim)
+        forward_hidden = hidden[-2]                  # last layer, forward direction
+        backward_hidden = hidden[-1]                 # last layer, backward direction
+
+        hidden_cat = torch.cat((forward_hidden, backward_hidden), dim=1)
+        out = self.dropout(hidden_cat)
+        return self.fc(out)
 
 
 def run_bilstm(train_df, val_df, test_df, weight_tensor):
