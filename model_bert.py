@@ -63,8 +63,8 @@ class BERTDataset(Dataset):
 
         Returns
         -------
-        tuple
-            A tuple containing the input_ids, attention_mask, and label of the sample.
+        set
+            A set containing the input_ids, attention_mask, and label of the sample.
         """
         encoding = self.tokenizer(
             self.texts[idx],
@@ -74,11 +74,11 @@ class BERTDataset(Dataset):
             return_tensors = 'pt'
         )
         
-        return {
+        return (
             encoding['input_ids'].squeeze(0),  # shape: (max_len,)
             encoding['attention_mask'].squeeze(0),  # shape: (max_len,)
             torch.tensor(self.labels[idx], dtype=torch.long)  # shape: ()
-        }
+        )
 
 
 class BERTClassifier(nn.Module):
