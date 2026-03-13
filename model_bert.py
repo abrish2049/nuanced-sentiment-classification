@@ -63,8 +63,8 @@ class BERTDataset(Dataset):
 
         Returns
         -------
-        set
-            A set containing the input_ids, attention_mask, and label of the sample.
+        tuple
+            A tuple containing the input_ids, attention_mask, and label of the sample.
         """
         encoding = self.tokenizer(
             self.texts[idx],
