@@ -222,14 +222,13 @@ def run_distilbert(train_df, val_df, test_df, weight_tensor):
         # --- Plots ---
         plot_training_curves(
             history,
-            title=f'DistilBERT ({tag})',
-            save_path=os.path.join(RESULTS_DIR, f'distilbert_{tag}_curves.png')
+            f'DistilBERT ({tag})',
+            os.path.join(RESULTS_DIR, f'distilbert_{tag}_curves.png')
         )
         plot_confusion_matrix(
             te_labels, te_preds,
-            classes=CLASSES,
-            title=f'DistilBERT ({tag}) — Confusion Matrix',
-            save_path=os.path.join(RESULTS_DIR, f'distilbert_{tag}_confusion.png')
+            f'DistilBERT ({tag}) — Confusion Matrix',
+            os.path.join(RESULTS_DIR, f'distilbert_{tag}_confusion.png')
         )
 
         # --- Store results ---
