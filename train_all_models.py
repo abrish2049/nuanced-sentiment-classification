@@ -55,13 +55,17 @@ def main():
     )
     parser.add_argument(
         '--scheme', type=str, default='default',
-        choices=['default', 'wide_neutral'],
+        choices=['default', 'wide_neutral', 'narrow_neutral'],
         help='Label threshold scheme'
     )
+
     parser.add_argument(
         '--force_resplit', action='store_true',
         help='Force a fresh train/val/test split even if CSVs already exist'
     )
+
+
+    
     args = parser.parse_args()
 
     print(f"\nDevice      : {device}")

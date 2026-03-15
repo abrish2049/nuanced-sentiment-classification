@@ -60,11 +60,14 @@ def assign_sentiment(rating, scheme='default'):
         if rating <= 3:   return 'bad'
         elif rating <= 7: return 'neutral'
         else:             return 'good'
+    elif scheme == 'narrow_neutral':
+        if rating <= 5:   return 'bad'
+        elif rating == 6: return 'neutral'
+        else:             return 'good'
     else:
         if rating <= 4:   return 'bad'
         elif rating <= 6: return 'neutral'
         else:             return 'good'
-
 
 # ================================================================== #
 # SECTION 2 — LOAD & SPLIT (with cache guard)                        #
