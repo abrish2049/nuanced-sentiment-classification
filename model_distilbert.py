@@ -232,20 +232,18 @@ def run_distilbert(train_df, val_df, test_df, weight_tensor):
         )
 
         # --- Store results ---
+        pcf1 = f1_score(te_labels, te_preds, average=None, labels=[0, 1, 2])
         all_results[tag] = {
-            'test_accuracy':    te_acc,
-            'test_macro_f1':    te_f1,
-            'test_loss':        te_loss,
-            'training_minutes': elapsed,
-            'best_val_f1':      best_val_f1,
-            'history':          history,
-            'classification_report': classification_report(
-                te_labels, te_preds,
-                target_names=CLASSES,
-                output_dict=True,
-                zero_division=0
-            )
+            'test_accuracy': float(te_acc),
+            'test_macro_f1': float(te_f1),
+            'per_class_f1': {
+                'bad':     float(pcf1[0]),
+                'neutral': float(pcf1[1]),
+                'good':    float(pcf1[2])
+            },
+            'training_time_minutes': round(elapsed, 2)
         }
+
 
     out = os.path.join(RESULTS_DIR, 'distilbert_results.json')
     with open(out, 'w') as f:
