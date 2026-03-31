@@ -64,6 +64,12 @@ def main():
         help='Force a fresh train/val/test split even if CSVs already exist'
     )
 
+    parser.add_argument(
+        '--max_len', type=int, default=512,
+        choices=[128, 256, 512],
+        help='Max token sequence length for BERT/BiLSTM'
+    )
+
 
     
     args = parser.parse_args()
@@ -73,7 +79,8 @@ def main():
         print(f"GPU         : {torch.cuda.get_device_name(0)}")
     print(f"Model(s)    : {', '.join(args.model)}")
     print(f"Label scheme: {args.scheme}")
-
+    print(f"Max length  : {args.max_len}")
+    
     train_df, val_df, test_df = load_and_split_data(
         scheme=args.scheme, force_resplit=args.force_resplit
     )
@@ -98,28 +105,33 @@ def main():
     if run_all or 'bilstm' in models_to_run:
         from model_bilstm import run_bilstm
         all_results['BiLSTM'] = run_bilstm(
-            train_df, val_df, test_df, weight_tensor
+            train_df, val_df, test_df, weight_tensor,
+            max_len=args.max_len
         )
+
 
     if run_all or 'distilbert' in models_to_run:
         from model_distilbert import run_distilbert
         all_results['DistilBERT'] = run_distilbert(
-            train_df, val_df, test_df, weight_tensor
+            train_df, val_df, test_df, weight_tensor,
+            max_len=args.max_len
         )
+
 
     if run_all or 'bert' in models_to_run:
         from model_bert import run_bert
         all_results['BERT'] = run_bert(
-            train_df, val_df, test_df, weight_tensor
+            train_df, val_df, test_df, weight_tensor, 
+            max_len=args.max_len
         )
 
     if all_results:
-        csv_path   = os.path.join(RESULTS_DIR, 'final_comparison.csv')
-        chart_path = os.path.join(RESULTS_DIR, 'final_performance.png')
+        csv_path   = os.path.join(RESULTS_DIR, f'final_comparison_len{args.max_len}.csv')
+        chart_path = os.path.join(RESULTS_DIR, f'final_performance_len{args.max_len}.png')
         print_and_save_comparison(all_results, csv_path=csv_path)
         plot_performance(all_results, chart_path)
 
-        summary_path = os.path.join(RESULTS_DIR, 'all_results.json')
+        summary_path = os.path.join(RESULTS_DIR, f'all_results_len{args.max_len}.json')
         with open(summary_path, 'w') as f:
             json.dump(all_results, f, indent=2)
         print(f"\nFull results saved → {summary_path}")

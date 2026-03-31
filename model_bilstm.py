@@ -56,7 +56,7 @@ class BiLSTM(nn.Module):
         return self.fc(out)
 
 
-def run_bilstm(train_df, val_df, test_df, weight_tensor):
+def run_bilstm(train_df, val_df, test_df, weight_tensor, max_len=512):
     print("\n" + "=" * 60)
     print("BiLSTM")
     print("=" * 60)
@@ -68,15 +68,16 @@ def run_bilstm(train_df, val_df, test_df, weight_tensor):
 
     train_loader, val_loader, test_loader = create_dataloaders(
         train_df, val_df, test_df, vocab,
-        batch_size=BATCH_SIZE, max_len=MAX_LEN
+        batch_size=BATCH_SIZE, max_len=max_len
     )
-
     all_results = {}
 
     for tag, cw in [('no_weighting', None), ('with_weighting', weight_tensor)]:
         print("\n" + "=" * 60)
         print(f"BiLSTM -- {tag}")
         print("=" * 60)
+
+        run_tag = f'bilstm_len{max_len}_{tag}'
 
         model = BiLSTM(
             vocab_size=len(vocab),
@@ -95,17 +96,17 @@ def run_bilstm(train_df, val_df, test_df, weight_tensor):
 
         t0 = time.time()
         acc, mf1, preds, labels, history = run_neural_experiment(
-            f"bilstm_{tag}", model,
+            run_tag, model,                          # ← was f"bilstm_{tag}"
             train_loader, val_loader, test_loader,
             criterion, optimizer
         )
         elapsed = (time.time() - t0) / 60
 
-        curve_path = os.path.join(RESULTS_DIR, f'bilstm_{tag}_curves.png')
-        plot_training_curves(history, f"BiLSTM ({tag})", curve_path)
+        curve_path = os.path.join(RESULTS_DIR, f'{run_tag}_curves.png')
+        plot_training_curves(history, f"BiLSTM ({tag}, len={max_len})", curve_path)
 
-        cm_path = os.path.join(RESULTS_DIR, f'bilstm_{tag}_confusion.png')
-        plot_confusion_matrix(labels, preds, f"BiLSTM ({tag})", cm_path)
+        cm_path = os.path.join(RESULTS_DIR, f'{run_tag}_confusion.png')
+        plot_confusion_matrix(labels, preds, f"BiLSTM ({tag}, len={max_len})", cm_path)
 
         pcf1 = f1_score(labels, preds, average=None, labels=[0, 1, 2])
         all_results[tag] = {
@@ -119,7 +120,7 @@ def run_bilstm(train_df, val_df, test_df, weight_tensor):
             'training_time_minutes': round(elapsed, 2)
         }
 
-    out = os.path.join(RESULTS_DIR, 'bilstm_results.json')
+    out = os.path.join(RESULTS_DIR, f'bilstm_len{max_len}_results.json')
     with open(out, 'w') as f:
         json.dump(all_results, f, indent=2)
     print(f"\nResults saved to {out}")

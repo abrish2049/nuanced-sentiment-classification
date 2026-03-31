@@ -9,7 +9,7 @@ import torch.optim as optim
 from sklearn.metrics import f1_score
 
 from data_handler import RESULTS_DIR, device, build_vocab, create_dataloaders
-from visualization import plot_confusion_matrix, plot_training_curves
+from visualization import plot_confusion_matrix, plot_training_curves, print_section
 from training_utils import run_neural_experiment
 
 BATCH_SIZE     = 64
@@ -109,13 +109,5 @@ def run_textcnn(train_df, val_df, test_df, weight_tensor):
     out = os.path.join(RESULTS_DIR, 'textcnn_results.json')
     with open(out, 'w') as f:
         json.dump(all_results, f, indent=2)
-    with open('textcnn_results.json', 'w') as f:
-        json.dump(all_results, f, indent=2)
     print(f"\nResults saved to {out}")
     return all_results
-
-
-def print_section(title):
-    print("\n" + "=" * 60)
-    print(title)
-    print("=" * 60)

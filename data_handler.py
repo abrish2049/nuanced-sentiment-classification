@@ -27,9 +27,7 @@ from torch.utils.data import Dataset, DataLoader
 from sklearn.model_selection import train_test_split
 from sklearn.utils.class_weight import compute_class_weight
 
-# ------------------------------------------------------------------ #
-# GLOBAL CONFIG (shared by all modules via this import)              #
-# ------------------------------------------------------------------ #
+
 CLASSES      = ['bad', 'neutral', 'good']
 LABEL_MAP    = {'bad': 0, 'neutral': 1, 'good': 2}
 RANDOM_SEED  = 42
@@ -45,9 +43,7 @@ TEST_CSV  = 'test_expanded.csv'
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
-# ================================================================== #
-# SECTION 1 — LABEL ASSIGNMENT                                       #
-# ================================================================== #
+
 def assign_sentiment(rating, scheme='default'):
     """Map a numeric rating to a sentiment label.
 
@@ -69,9 +65,7 @@ def assign_sentiment(rating, scheme='default'):
         elif rating <= 6: return 'neutral'
         else:             return 'good'
 
-# ================================================================== #
-# SECTION 2 — LOAD & SPLIT (with cache guard)                        #
-# ================================================================== #
+
 def _splits_exist():
     """Return True only when all three split CSVs are present on disk."""
     return all(os.path.isfile(p) for p in [TRAIN_CSV, VAL_CSV, TEST_CSV])
@@ -91,9 +85,8 @@ def load_and_split_data(scheme='default', force_resplit=False):
     -------
     train_df, val_df, test_df : pd.DataFrame
     """
-    # ---- cache hit ------------------------------------------------ #
     if _splits_exist() and not force_resplit:
-        print("[data_handler] Split CSVs already exist — loading from disk.")
+        print("Split CSVs already exist — loading from disk.")
         print(f"  Delete {TRAIN_CSV} / {VAL_CSV} / {TEST_CSV} or pass "
               "force_resplit=True to regenerate.")
         train_df = pd.read_csv(TRAIN_CSV)
@@ -102,8 +95,7 @@ def load_and_split_data(scheme='default', force_resplit=False):
         _print_split_summary(train_df, val_df, test_df)
         return train_df, val_df, test_df
 
-    # ---- fresh split ---------------------------------------------- #
-    print("[data_handler] Generating fresh train / val / test split …")
+    print("Generating fresh train / val / test split...")
     df = pd.read_csv(DATA_CSV)
     df = df.dropna(subset=['review', 'rating'])
     df['rating']    = df['rating'].astype(int)
@@ -139,9 +131,7 @@ def _print_split_summary(train_df, val_df, test_df):
           f"Test: {len(test_df):,}")
 
 
-# ================================================================== #
-# SECTION 3 — CLASS WEIGHTS                                          #
-# ================================================================== #
+
 def compute_weights(train_df):
     """Compute inverse-frequency class weights for the training set.
 
@@ -160,14 +150,12 @@ def compute_weights(train_df):
         [weight_dict['bad'], weight_dict['neutral'], weight_dict['good']],
         dtype=torch.float
     ).to(device)
-    print(f"[data_handler] Class weights [bad, neutral, good]: "
+    print(f"Class weights [bad, neutral, good]: "
           f"{weight_tensor.cpu().numpy().round(4)}")
     return weight_dict, weight_tensor
 
 
-# ================================================================== #
-# SECTION 4 — DATASET & VOCAB (from dataset.py, consolidated here)  #
-# ================================================================== #
+
 class SentimentDataset(Dataset):
     """Token-index dataset for TextCNN / BiLSTM models."""
 
@@ -203,7 +191,7 @@ def build_vocab(texts, min_freq=2, max_vocab_size=50000):
         if freq >= min_freq:
             vocab[word] = len(vocab)
 
-    print(f"[data_handler] Vocabulary size: {len(vocab):,}")
+    print(f"Vocabulary size: {len(vocab):,}")
     return vocab
 
 
@@ -214,7 +202,7 @@ def load_glove_embeddings(glove_path, vocab, embed_dim=300):
     -------
     torch.FloatTensor  shape (len(vocab), embed_dim)
     """
-    print(f"[data_handler] Loading GloVe from {glove_path} …")
+    print(f"Loading GloVe from {glove_path}...")
     embeddings      = np.random.randn(len(vocab), embed_dim) * 0.01
     embeddings[0]   = 0  # PAD → zero vector
     found           = 0
@@ -227,7 +215,7 @@ def load_glove_embeddings(glove_path, vocab, embed_dim=300):
                 embeddings[vocab[word]] = np.array(parts[1:], dtype=np.float32)
                 found += 1
 
-    print(f"[data_handler] Found {found}/{len(vocab)} words in GloVe")
+    print(f"Found {found}/{len(vocab)} words in GloVe")
     return torch.FloatTensor(embeddings)
 
 

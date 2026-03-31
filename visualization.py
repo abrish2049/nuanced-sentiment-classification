@@ -22,24 +22,15 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.metrics import confusion_matrix
 
-CLASSES     = ['bad', 'neutral', 'good']
-RESULTS_DIR = 'results'
-os.makedirs(RESULTS_DIR, exist_ok=True)
+from data_handler import CLASSES, RESULTS_DIR
 
 
-# ================================================================== #
-# CONSOLE HELPER                                                      #
-# ================================================================== #
 def print_section(title):
-    """Print a bold console section divider."""
     print("\n" + "=" * 60)
     print(title)
     print("=" * 60)
 
 
-# ================================================================== #
-# TRAINING CURVES                                                     #
-# ================================================================== #
 def plot_training_curves(history, tag, save_path):
     """Save a two-panel figure: Loss (left) and Macro-F1 (right).
 
@@ -78,12 +69,9 @@ def plot_training_curves(history, tag, save_path):
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.close()
-    print(f"[viz] Saved training curves → {save_path}")
+    print(f"Saved training curves -> {save_path}")
 
 
-# ================================================================== #
-# CONFUSION MATRIX                                                    #
-# ================================================================== #
 def plot_confusion_matrix(labels, preds, tag, save_path):
     """Save a seaborn heatmap of the confusion matrix.
 
@@ -104,12 +92,9 @@ def plot_confusion_matrix(labels, preds, tag, save_path):
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.close()
-    print(f"[viz] Saved confusion matrix → {save_path}")
+    print(f"Saved confusion matrix -> {save_path}")
 
 
-# ================================================================== #
-# FINAL PERFORMANCE COMPARISON                                        #
-# ================================================================== #
 def plot_performance(results_by_model, save_path):
     """Grouped bar chart: Accuracy, Macro-F1, and Neutral F1 per model variant.
 
@@ -134,7 +119,7 @@ def plot_performance(results_by_model, save_path):
             })
 
     if not rows:
-        print("[viz] No data to plot for performance comparison.")
+        print("No data to plot for performance comparison.")
         return
 
     df  = pd.DataFrame(rows)
@@ -157,12 +142,9 @@ def plot_performance(results_by_model, save_path):
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.close()
-    print(f"[viz] Saved performance chart → {save_path}")
+    print(f"Saved performance chart -> {save_path}")
 
 
-# ================================================================== #
-# COMPARISON TABLE (console + CSV)                                    #
-# ================================================================== #
 def print_and_save_comparison(all_model_results, csv_path=None):
     """Print a comparison table to stdout and optionally save as CSV.
 
@@ -193,4 +175,4 @@ def print_and_save_comparison(all_model_results, csv_path=None):
 
     if csv_path:
         df.to_csv(csv_path, index=False)
-        print(f"\n[viz] Comparison table saved → {csv_path}")
+        print(f"\nComparison table saved -> {csv_path}")

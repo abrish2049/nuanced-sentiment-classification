@@ -19,6 +19,7 @@ Dependencies:
 """
 
 import os
+import pandas as pd
 import torch
 import torch.nn as nn
 from tqdm import tqdm
@@ -29,9 +30,45 @@ from data_handler import RESULTS_DIR, device, CLASSES
 NUM_EPOCHS = 15   # default; callers may override
 
 
-# ================================================================== #
-# SINGLE-EPOCH HELPERS                                               #
-# ================================================================== #
+def save_history_csv(history, tag, test_loss=None, test_acc=None, test_f1=None):
+    """Save per-epoch training history (and optional test metrics) to CSV.
+
+    Parameters
+    ----------
+    history   : dict with keys train_loss, val_loss, train_acc, val_acc, train_f1, val_f1
+    tag       : str — used in the filename, e.g. 'bert_len512_focal'
+    test_loss : float or None — final test loss (appended as last row)
+    test_acc  : float or None — final test accuracy
+    test_f1   : float or None — final test macro-F1
+    """
+    safe_tag = tag.lower().replace(" ", "_").replace("(", "").replace(")", "")
+    rows = []
+    for i in range(len(history['train_loss'])):
+        rows.append({
+            'epoch':      i + 1,
+            'train_loss': history['train_loss'][i],
+            'train_acc':  history['train_acc'][i],
+            'train_f1':   history['train_f1'][i],
+            'val_loss':   history['val_loss'][i],
+            'val_acc':    history['val_acc'][i],
+            'val_f1':     history['val_f1'][i],
+        })
+    if test_loss is not None:
+        rows.append({
+            'epoch':      'test',
+            'train_loss': None,
+            'train_acc':  None,
+            'train_f1':   None,
+            'val_loss':   test_loss,
+            'val_acc':    test_acc,
+            'val_f1':     test_f1,
+        })
+    df = pd.DataFrame(rows)
+    csv_path = os.path.join(RESULTS_DIR, f'{safe_tag}_history.csv')
+    df.to_csv(csv_path, index=False)
+    print(f"Saved training history -> {csv_path}")
+
+
 def train_epoch(model, loader, criterion, optimizer):
     """Run one training epoch.
 
@@ -88,9 +125,6 @@ def evaluate(model, loader, criterion):
     )
 
 
-# ================================================================== #
-# FULL EXPERIMENT LOOP                                               #
-# ================================================================== #
 def run_neural_experiment(tag, model, train_loader, val_loader, test_loader,
                           criterion, optimizer, num_epochs=NUM_EPOCHS):
     """Generic train / validate / test loop for single-input nn.Module models.
@@ -143,7 +177,6 @@ def run_neural_experiment(tag, model, train_loader, val_loader, test_loader,
             torch.save(model.state_dict(), ckpt)
             print(f"    New best model saved (Val F1={vl_f1:.4f})")
 
-    # ---- test on best checkpoint ---------------------------------- #
     model.load_state_dict(torch.load(ckpt))
     ts_loss, ts_acc, ts_f1, ts_preds, ts_labels = evaluate(
         model, test_loader, criterion
@@ -152,5 +185,8 @@ def run_neural_experiment(tag, model, train_loader, val_loader, test_loader,
     print(f"\n  {tag} Test Results → Acc: {ts_acc:.4f} | Macro-F1: {ts_f1:.4f}")
     print(classification_report(ts_labels, ts_preds,
                                 target_names=CLASSES, digits=4))
+
+    save_history_csv(history, tag,
+                     test_loss=ts_loss, test_acc=ts_acc, test_f1=ts_f1)
 
     return ts_acc, ts_f1, ts_preds, ts_labels, history
