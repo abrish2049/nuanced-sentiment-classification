@@ -1,10 +1,8 @@
 # Nuanced Sentiment Classification
 
-Three-class sentiment analysis on IMDb movie reviews using Logistic Regression, TextCNN, BiLSTM, DistilBERT, and BERT-base.
+Three-class sentiment analysis (bad, neutral, good) on 108K IMDb movie reviews. The project reframes the standard binary IMDb task by retaining middle-rated reviews (ratings 4–7) as a neutral class, using rating annotations as weak supervision. Five model families are evaluated — Logistic Regression, TextCNN, BiLSTM, DistilBERT, and BERT-base — with ablations on class weighting, label thresholds, sequence length, fine-tuning strategy, and focal loss. The neutral class is the primary bottleneck across all models (F1 0.51–0.62); adding it costs roughly 10 accuracy points compared to binary classification.
 
 ## Setup
-
-Install dependencies:
 
 ```bash
 pip install torch transformers scikit-learn pandas numpy matplotlib seaborn tqdm
@@ -12,97 +10,63 @@ pip install torch transformers scikit-learn pandas numpy matplotlib seaborn tqdm
 
 Place `Data.csv` in the project root. Expected columns: `movie_id`, `title`, `review`, `rating`.
 
----
-
 ## Project Structure
 
 ```
-├── train_all_models.py      # Entry point
-├── data_handler.py          # Data loading, splitting, vocab, dataloaders
-├── training_utils.py        # Shared neural training loop
-├── visualization.py         # Plots and comparison tables
-├── model_lr.py              # Logistic Regression
-├── model_textcnn.py         # TextCNN
-├── model_bilstm.py          # BiLSTM
-├── model_distilbert.py      # DistilBERT
-├── model_bert.py            # BERT-base
-├── Data.csv                 # Raw dataset (not included)
-└── results/                 # Output directory for models, plots, and JSON results
+├── train_all_models.py      # Entry point — unified training pipeline
+├── data_handler.py          # Data loading, splitting, vocab, weights, dataloaders
+├── training_utils.py        # Shared neural training loop + history CSV export
+├── visualization.py         # Plots, confusion matrices, comparison tables
+├── losses.py                # Focal loss implementation
+├── model_lr.py              # Logistic Regression + feature/error analysis
+├── model_textcnn.py         # TextCNN (Kim 2014)
+├── model_bilstm.py          # Bidirectional LSTM
+├── model_distilbert.py      # DistilBERT fine-tuning
+├── model_bert.py            # BERT-base + freeze/focal ablations + attention viz
+├── all_models_score_viz.py  # Acc vs F1 scatter plot from saved results
+├── Data.csv                 # Raw dataset (not included in repo)
+└── results/                 # All outputs: checkpoints, plots, CSVs, JSONs
 ```
 
----
-
-## Running the Pipeline
+## Usage
 
 ```bash
-python train_all_models.py --model <model> --scheme <scheme>
+python train_all_models.py [OPTIONS]
 ```
 
-### `--model` options
-
-| Value | Description |
-|---|---|
-| `all` | Run all models |
-| `lr` | Logistic Regression (TF-IDF baseline) |
-| `textcnn` | TextCNN (Kim 2014) |
-| `bilstm` | Bidirectional LSTM |
-| `distilbert` | DistilBERT (distilbert-base-uncased) |
-| `bert` | BERT-base (bert-base-uncased) |
-
-You can pass multiple models at once:
+| Argument | Values | Default | Description |
+|---|---|---|---|
+| `--model` | `all lr textcnn bilstm distilbert bert` | `all` | Model(s) to run. Multiple allowed. |
+| `--scheme` | `default wide_neutral narrow_neutral` | `default` | Label threshold scheme. |
+| `--max_len` | `128 256 512` | `512` | Max token sequence length (BERT, DistilBERT, BiLSTM). |
+| `--force_resplit` | flag | off | Regenerate train/val/test CSVs from scratch. |
 
 ```bash
-python train_all_models.py --model lr textcnn bilstm
-```
-
-### `--scheme` options
-
-| Value | Thresholds |
-|---|---|
-| `default` *(default)* | 1-4 bad, 5-6 neutral, 7-10 good |
-| `wide_neutral` | 1-3 bad, 4-7 neutral, 8-10 good |
-| `narrow_neutral` | 1-5 bad, 6 neutral, 7-10 good |
-
-### `--force_resplit`
-
-By default the pipeline reuses existing `train_expanded.csv`, `val_expanded.csv`, and `test_expanded.csv` if they are already on disk. Pass this flag to regenerate them from scratch:
-
-```bash
-python train_all_models.py --model all --force_resplit
-```
-
----
-
-## Examples
-
-```bash
-# Run everything with wide neutral scheme
+# Run all models with wide neutral scheme
 python train_all_models.py --model all --scheme wide_neutral
 
-# Baseline only
-python train_all_models.py --model lr
+# Sequence length ablation for BERT
+python train_all_models.py --model bert --max_len 128
+python train_all_models.py --model bert --max_len 256
+python train_all_models.py --model bert --max_len 512
 
-# Label threshold ablation (run each scheme with LR)
+# Label threshold ablation with LR
 python train_all_models.py --model lr --scheme narrow_neutral --force_resplit
 python train_all_models.py --model lr --scheme default --force_resplit
 python train_all_models.py --model lr --scheme wide_neutral --force_resplit
 
-# TextCNN + BiLSTM with wide neutral
-python train_all_models.py --model textcnn bilstm --scheme wide_neutral
-
-# Force a fresh data split then run BERT
-python train_all_models.py --model bert --force_resplit
+# Visualize results
+python all_models_score_viz.py [--max_len 512]
 ```
-
----
 
 ## Outputs
 
-All results are saved to the `results/` directory:
+All results go to `results/`:
 
-- `all_results.json` — full metrics for every model and condition
-- `final_comparison.csv` — summary table
-- `final_performance.png` — grouped bar chart
-- `{model}_{condition}_curves.png` — training/validation curves per model
-- `{model}_{condition}_confusion.png` — confusion matrix per model
-- `{model}_{condition}_best.pt` — best model checkpoint per run
+- `all_results_len{max_len}.json` — full metrics for every model
+- `final_comparison.csv` / `final_performance.png` — summary table and chart
+- `{tag}_curves.png` / `{tag}_confusion.png` — per-run training curves and confusion matrices
+- `{tag}_history.csv` — per-epoch train/val loss, accuracy, F1 + final test metrics
+- `{tag}_errors.csv` — misclassified examples (BERT, LR)
+- `bert_attention_neutral_*.png` — CLS attention visualizations for neutral reviews
+- `{tag}_best.pt` — best model checkpoint per run
