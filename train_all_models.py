@@ -58,21 +58,34 @@ def main():
         choices=['default', 'wide_neutral', 'narrow_neutral'],
         help='Label threshold scheme'
     )
-
     parser.add_argument(
         '--force_resplit', action='store_true',
         help='Force a fresh train/val/test split even if CSVs already exist'
     )
-
     parser.add_argument(
         '--max_len', type=int, default=512,
         choices=[128, 256, 512],
         help='Max token sequence length for BERT/BiLSTM'
     )
+    parser.add_argument(
+        '--results_dir', type=str, default=None,
+        help='Output directory for results. Defaults to results/len{max_len}'
+    )
 
-
-    
     args = parser.parse_args()
+
+    # Override RESULTS_DIR in every module that uses it so all outputs from
+    # this run land in their own subfolder and no two length runs overwrite
+    # each other. Done here before any model import so the patched value is
+    # picked up everywhere.
+    import data_handler
+    import visualization
+    import training_utils
+    results_dir = args.results_dir or os.path.join('results', f'len{args.max_len}')
+    os.makedirs(results_dir, exist_ok=True)
+    data_handler.RESULTS_DIR   = results_dir
+    visualization.RESULTS_DIR  = results_dir
+    training_utils.RESULTS_DIR = results_dir
 
     print(f"\nDevice      : {device}")
     if torch.cuda.is_available():
@@ -80,7 +93,8 @@ def main():
     print(f"Model(s)    : {', '.join(args.model)}")
     print(f"Label scheme: {args.scheme}")
     print(f"Max length  : {args.max_len}")
-    
+    print(f"Results dir : {results_dir}")
+
     train_df, val_df, test_df = load_and_split_data(
         scheme=args.scheme, force_resplit=args.force_resplit
     )
@@ -109,7 +123,6 @@ def main():
             max_len=args.max_len
         )
 
-
     if run_all or 'distilbert' in models_to_run:
         from model_distilbert import run_distilbert
         all_results['DistilBERT'] = run_distilbert(
@@ -117,24 +130,23 @@ def main():
             max_len=args.max_len
         )
 
-
     if run_all or 'bert' in models_to_run:
         from model_bert import run_bert
         all_results['BERT'] = run_bert(
-            train_df, val_df, test_df, weight_tensor, 
+            train_df, val_df, test_df, weight_tensor,
             max_len=args.max_len
         )
 
     if all_results:
-        csv_path   = os.path.join(RESULTS_DIR, f'final_comparison_len{args.max_len}.csv')
-        chart_path = os.path.join(RESULTS_DIR, f'final_performance_len{args.max_len}.png')
+        csv_path   = os.path.join(results_dir, f'final_comparison_len{args.max_len}.csv')
+        chart_path = os.path.join(results_dir, f'final_performance_len{args.max_len}.png')
         print_and_save_comparison(all_results, csv_path=csv_path)
         plot_performance(all_results, chart_path)
 
-        summary_path = os.path.join(RESULTS_DIR, f'all_results_len{args.max_len}.json')
+        summary_path = os.path.join(results_dir, f'all_results_len{args.max_len}.json')
         with open(summary_path, 'w') as f:
             json.dump(all_results, f, indent=2)
-        print(f"\nFull results saved → {summary_path}")
+        print(f"\nFull results saved -> {summary_path}")
 
     print("\nPipeline complete.")
 
