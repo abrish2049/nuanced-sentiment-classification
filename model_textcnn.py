@@ -32,6 +32,7 @@ class TextCNN(nn.Module):
         self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=0)
         if pretrained_embeddings is not None:
             self.embedding.weight.data.copy_(pretrained_embeddings)
+            self.embedding.weight.requires_grad = False  # freeze pretrained (GloVe)
         self.convs   = nn.ModuleList([
             nn.Conv1d(embed_dim, num_filters, fs) for fs in filter_sizes
         ])
@@ -47,7 +48,7 @@ class TextCNN(nn.Module):
         return self.fc(self.dropout(torch.cat(pooled, dim=1)))
 
 
-def run_textcnn(train_df, val_df, test_df, weight_tensor):
+def run_textcnn(train_df, val_df, test_df, weight_tensor, glove_path=None):
     print("\n" + "=" * 60)
     print("TextCNN")
     print("=" * 60)
@@ -55,30 +56,49 @@ def run_textcnn(train_df, val_df, test_df, weight_tensor):
     vocab = build_vocab(train_df['review'].values,
                         min_freq=MIN_FREQ, max_vocab_size=MAX_VOCAB_SIZE)
 
-    # glove_embeddings = load_glove_embeddings('glove.6B.300d.txt', vocab, EMBED_DIM)
     glove_embeddings = None
-    print("Using randomly initialized embeddings (no GloVe)")
+    if glove_path:
+        from data_handler import load_glove_embeddings
+        glove_embeddings = load_glove_embeddings(glove_path, vocab, EMBED_DIM)
+        print(f"GloVe embeddings loaded from {glove_path}")
+    else:
+        print("Using randomly initialized embeddings (no GloVe)")
 
     train_loader, val_loader, test_loader = create_dataloaders(
         train_df, val_df, test_df, vocab,
         batch_size=BATCH_SIZE, max_len=MAX_LEN
     )
 
+    # Base variants always run with random embeddings.
+    # If GloVe is provided, two additional frozen-embedding variants are appended.
+    variants = [
+        ('no_weighting',         None,          None),
+        ('with_weighting',       weight_tensor, None),
+    ]
+    if glove_embeddings is not None:
+        variants += [
+            ('glove_no_weighting',   None,          glove_embeddings),
+            ('glove_with_weighting', weight_tensor, glove_embeddings),
+        ]
+
     all_results = {}
 
-    for tag, cw in [('no_weighting', None), ('with_weighting', weight_tensor)]:
+    for tag, cw, emb in variants:
         print_section(f"TextCNN -- {tag}")
         model = TextCNN(
             vocab_size=len(vocab), embed_dim=EMBED_DIM,
             num_classes=3, num_filters=CNN_NUM_FILTERS,
             filter_sizes=CNN_FILTER_SIZES, dropout=DROPOUT,
-            pretrained_embeddings=glove_embeddings
+            pretrained_embeddings=emb
         ).to(device)
         print(f"Parameters: {sum(p.numel() for p in model.parameters()):,}")
 
         criterion = (nn.CrossEntropyLoss(weight=cw)
                      if cw is not None else nn.CrossEntropyLoss())
-        optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+        optimizer = optim.Adam(
+            filter(lambda p: p.requires_grad, model.parameters()),
+            lr=LEARNING_RATE
+        )
 
         t0  = time.time()
         acc, mf1, preds, labels, history = run_neural_experiment(

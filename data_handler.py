@@ -195,17 +195,26 @@ def build_vocab(texts, min_freq=2, max_vocab_size=50000):
     return vocab
 
 
+from download_glove import download_glove
+
+
 def load_glove_embeddings(glove_path, vocab, embed_dim=300):
     """Load pretrained GloVe vectors for words present in *vocab*.
+
+    If *glove_path* does not exist, attempts to download it automatically.
 
     Returns
     -------
     torch.FloatTensor  shape (len(vocab), embed_dim)
     """
+    if not os.path.isfile(glove_path):
+        print(f"GloVe file not found at '{glove_path}' — attempting download.")
+        download_glove(glove_path)
+
     print(f"Loading GloVe from {glove_path}...")
-    embeddings      = np.random.randn(len(vocab), embed_dim) * 0.01
-    embeddings[0]   = 0  # PAD → zero vector
-    found           = 0
+    embeddings    = np.random.randn(len(vocab), embed_dim) * 0.01
+    embeddings[0] = 0  # PAD → zero vector
+    found         = 0
 
     with open(glove_path, 'r', encoding='utf-8') as fh:
         for line in fh:

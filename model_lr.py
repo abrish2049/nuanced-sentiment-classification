@@ -8,7 +8,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, classification_report, f1_score
 
 from data_handler import CLASSES, RANDOM_SEED, RESULTS_DIR
-from visualization import plot_confusion_matrix
+from visualization import plot_confusion_matrix, plot_tfidf_features
 
 
 def run_logistic_regression(train_df, val_df, test_df, weight_dict):
@@ -63,17 +63,17 @@ def run_logistic_regression(train_df, val_df, test_df, weight_dict):
             }
         }
 
-    # Feature analysis — look at the top weighted features for each class
+    # Feature analysis — top TF-IDF features per class (weighted model)
     print("\n-- Top TF-IDF features per class (weighted model) --")
     feature_names = vectorizer.get_feature_names_out()
     for i, cls in enumerate(CLASSES):
         coefs   = lr_for_analysis.coef_[i]
         top_pos = np.argsort(coefs)[-20:][::-1]
-        top_neg = np.argsort(coefs)[:20]
         print(f"\n  '{cls}' — most positive features:")
         print("  ", [feature_names[j] for j in top_pos])
-        print(f"  '{cls}' — most negative features:")
-        print("  ", [feature_names[j] for j in top_neg])
+
+    tfidf_chart_path = os.path.join(RESULTS_DIR, 'lr_tfidf_features.png')
+    plot_tfidf_features(lr_for_analysis, feature_names, tfidf_chart_path)
 
     # Error analysis — look at misclassified examples, especially neutrals
     print("\n-- Error analysis (weighted model) --")

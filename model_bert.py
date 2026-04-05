@@ -294,7 +294,7 @@ def run_bert(train_df, val_df, test_df, weight_tensor, max_len=512):
 
         elapsed = (time.time() - t0) / 60
 
-        model.load_state_dict(torch.load(ckpt, map_location=device))
+        model.load_state_dict(torch.load(ckpt, map_location=device, weights_only=True))
         model.eval()
         ts_loss, ts_preds, ts_labels = 0.0, [], []
 
@@ -338,7 +338,8 @@ def run_bert(train_df, val_df, test_df, weight_tensor, max_len=512):
         print(neutral_errors['rating'].value_counts().sort_index().to_string())        
 
         if tag == 'with_weighting':
-            analyze_attention(model, tokenizer, test_df, device)
+            analyze_attention(model, tokenizer, test_df, device,
+                              ts_preds=ts_preds, ts_labels=ts_labels)
             
         curve_path = os.path.join(RESULTS_DIR, f'{run_tag}_curves.png')
         plot_training_curves(history, f"BERT ({tag}, len={max_len})", curve_path)
@@ -367,30 +368,64 @@ def run_bert(train_df, val_df, test_df, weight_tensor, max_len=512):
     return all_results
 
 def analyze_attention(model, tokenizer, test_df, device,
-                      n_examples=10, save_dir=RESULTS_DIR):
-    """Save CLS attention bar charts for a sample of neutral test reviews.
+                      ts_preds=None, ts_labels=None,
+                      n_correct=5, n_wrong=5, save_dir=None):
+    """Save CLS attention bar charts for neutral test reviews.
+
+    Produces two groups:
+      - correctly classified neutral reviews  (true=neutral, pred=neutral)
+      - misclassified neutral reviews         (true=neutral, pred!=neutral)
 
     Parameters
     ----------
-    model      : BERTClassifier — should be loaded with best checkpoint already
+    model      : BERTClassifier — loaded with best checkpoint
     tokenizer  : BertTokenizer
-    test_df    : pd.DataFrame — the test split, needs a 'sentiment' column
+    test_df    : pd.DataFrame — test split with 'sentiment' column
     device     : torch.device
-    n_examples : int — how many neutral reviews to visualise
+    ts_preds   : list of int — model predictions on test set
+    ts_labels  : list of int — ground-truth labels on test set
+    n_correct  : int — how many correctly classified neutral reviews to plot
+    n_wrong    : int — how many misclassified neutral reviews to plot
     save_dir   : str — where to save the PNG files
     """
     import matplotlib.pyplot as plt
+
+    if save_dir is None:
+        save_dir = RESULTS_DIR
 
     model.eval()
     # Switch to eager attention so output_attentions=True works (SDPA doesn't support it)
     model.bert.config._attn_implementation = "eager"
 
-    neutral_reviews = (
-        test_df[test_df['sentiment'] == 'neutral']['review']
-        .tolist()[:n_examples]
-    )
+    NEUTRAL_IDX = LABEL_MAP['neutral']
 
-    for i, text in enumerate(neutral_reviews):
+    # Build review groups based on predictions if available
+    if ts_preds is not None and ts_labels is not None:
+        df = test_df.reset_index(drop=True).copy()
+        df['_pred'] = ts_preds
+        df['_true'] = ts_labels
+        neutral_correct = (
+            df[(df['sentiment'] == 'neutral') & (df['_pred'] == NEUTRAL_IDX)]
+            ['review'].tolist()[:n_correct]
+        )
+        neutral_wrong = (
+            df[(df['sentiment'] == 'neutral') & (df['_pred'] != NEUTRAL_IDX)]
+            ['review'].tolist()[:n_wrong]
+        )
+    else:
+        reviews = (test_df[test_df['sentiment'] == 'neutral']['review']
+                   .tolist()[:n_correct + n_wrong])
+        neutral_correct = reviews[:n_correct]
+        neutral_wrong   = reviews[n_correct:]
+
+    examples = (
+        [(text, 'correct') for text in neutral_correct] +
+        [(text, 'wrong')   for text in neutral_wrong]
+    )
+    print(f"[attention] {len(neutral_correct)} correctly-classified, "
+          f"{len(neutral_wrong)} misclassified neutral reviews")
+
+    for i, (text, status) in enumerate(examples):
         enc = tokenizer(
             text,
             max_length=64,       # short enough that the bar chart is readable
@@ -423,12 +458,12 @@ def analyze_attention(model, tokenizer, test_df, device,
         ax.bar(range(real_len), cls_attn)
         ax.set_xticks(range(real_len))
         ax.set_xticklabels(tokens, rotation=90, fontsize=7)
-        ax.set_title(f'CLS attention — neutral example {i}')
+        ax.set_title(f'CLS attention — neutral ({status}) example {i}')
         plt.tight_layout()
         plt.savefig(
-            os.path.join(save_dir, f'bert_attention_neutral_{i}.png'),
+            os.path.join(save_dir, f'bert_attention_neutral_{status}_{i}.png'),
             dpi=150, bbox_inches='tight'
         )
         plt.close()
 
-    print(f"[attention] Saved {len(neutral_reviews)} attention plots → {save_dir}")
+    print(f"[attention] Saved {len(examples)} attention plots → {save_dir}")

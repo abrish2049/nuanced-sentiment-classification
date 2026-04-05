@@ -18,21 +18,22 @@ parser.add_argument('--max_len', type=int, default=None,
 args = parser.parse_args()
 
 # Resolve the all-models results file
+max_len_tag = args.max_len or 512
+results_dir = f'results/len{max_len_tag}'
+
 if args.max_len is not None:
-    results_file = f'results/all_results_len{args.max_len}.json'
+    results_file = os.path.join(results_dir, f'all_results_len{args.max_len}.json')
 else:
-    candidates = sorted(glob.glob('results/all_results_len*.json'))
+    candidates = sorted(glob.glob('results/len*/all_results_len*.json'))
     if candidates:
         results_file = candidates[-1]
-    elif os.path.isfile('results/all_results.json'):
-        results_file = 'results/all_results.json'
+        results_dir  = os.path.dirname(results_file)
     else:
         raise FileNotFoundError(
-            "No results JSON found in results/. Run train_all_models.py first.")
+            "No results JSON found. Run train_all_models.py first.")
 
 # Resolve the BERT-specific results file
-max_len_tag = args.max_len or 512
-bert_results_file = f'results/bert_len{max_len_tag}_results.json'
+bert_results_file = os.path.join(results_dir, f'bert_len{max_len_tag}_results.json')
 
 print(f"Loading all-model results from : {results_file}")
 print(f"Loading BERT ablation results from: {bert_results_file}")
@@ -82,7 +83,7 @@ ax.legend(fontsize=12, frameon=True, shadow=True, loc='lower right')
 ax.set_aspect('equal', adjustable='box')
 
 plt.tight_layout()
-scatter_path = f'results/model_performance_comparison_len{max_len_tag}.png'
+scatter_path = os.path.join(results_dir, f'model_performance_comparison_len{max_len_tag}.png')
 plt.savefig(scatter_path, dpi=300, bbox_inches='tight')
 print(f"Scatter plot saved as '{scatter_path}'")
 plt.show()
@@ -153,7 +154,7 @@ else:
     ax.grid(axis='y', alpha=0.3, zorder=0)
 
     plt.tight_layout()
-    bert_chart_path = f'results/bert_ablation_len{max_len_tag}.png'
+    bert_chart_path = os.path.join(results_dir, f'bert_ablation_len{max_len_tag}.png')
     plt.savefig(bert_chart_path, dpi=300, bbox_inches='tight')
     print(f"\nBERT ablation chart saved as '{bert_chart_path}'")
     plt.show()

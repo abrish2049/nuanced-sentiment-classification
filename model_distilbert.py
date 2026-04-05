@@ -212,7 +212,7 @@ def run_distilbert(train_df, val_df, test_df, weight_tensor, max_len=512):
         print(f"\n  Training time: {elapsed:.1f} min")
 
         # --- Load best checkpoint and evaluate on test set ---
-        model.load_state_dict(torch.load(ckpt, map_location=device))
+        model.load_state_dict(torch.load(ckpt, map_location=device, weights_only=True))
         te_loss, te_acc, te_f1, te_preds, te_labels = _eval_epoch(
             model, test_loader, criterion, device
         )

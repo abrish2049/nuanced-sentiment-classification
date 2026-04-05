@@ -145,6 +145,70 @@ def plot_performance(results_by_model, save_path):
     print(f"Saved performance chart -> {save_path}")
 
 
+def plot_tfidf_features(lr_model, feature_names, save_path, top_n=15):
+    """Horizontal bar chart of top TF-IDF features per class.
+
+    Parameters
+    ----------
+    lr_model      : fitted LogisticRegression with coef_ attribute
+    feature_names : array-like of str — from vectorizer.get_feature_names_out()
+    save_path     : str — full path for the output PNG
+    top_n         : int — number of top features to show per class
+    """
+    classes = CLASSES
+    fig, axes = plt.subplots(1, len(classes), figsize=(6 * len(classes), 5),
+                             sharey=False)
+    fig.suptitle('Top TF-IDF Features per Class (weighted LR)', fontsize=13)
+
+    colors = {'bad': 'tomato', 'neutral': 'steelblue', 'good': 'seagreen'}
+
+    for ax, cls in zip(axes, classes):
+        i     = classes.index(cls)
+        coefs = lr_model.coef_[i]
+        top_i = np.argsort(coefs)[-top_n:][::-1]
+        words = [feature_names[j] for j in top_i]
+        vals  = coefs[top_i]
+
+        ax.barh(range(top_n), vals[::-1], color=colors[cls], alpha=0.8)
+        ax.set_yticks(range(top_n))
+        ax.set_yticklabels(words[::-1], fontsize=9)
+        ax.set_title(f"'{cls}'", fontsize=11)
+        ax.set_xlabel('Coefficient')
+        ax.grid(axis='x', alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"Saved TF-IDF feature chart -> {save_path}")
+
+
+def plot_rating_distribution(train_df, val_df, test_df, save_path):
+    """Bar chart of raw 1–10 rating counts across the full dataset.
+
+    Parameters
+    ----------
+    train_df, val_df, test_df : pd.DataFrame — the three data splits
+    save_path : str — full path for the output PNG
+    """
+    full_df = pd.concat([train_df, val_df, test_df], ignore_index=True)
+    counts  = full_df['rating'].value_counts().sort_index()
+
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.bar(counts.index, counts.values, color='steelblue', edgecolor='white')
+    ax.set_xticks(range(1, 11))
+    ax.set_xlabel('Rating (1–10)')
+    ax.set_ylabel('Number of Reviews')
+    ax.set_title('IMDb Rating Distribution')
+    ax.grid(axis='y', alpha=0.3)
+    max_count = counts.max()
+    for x, y in zip(counts.index, counts.values):
+        ax.text(x, y + max_count * 0.01, f'{y:,}', ha='center', fontsize=8)
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"Saved rating distribution -> {save_path}")
+
+
 def print_and_save_comparison(all_model_results, csv_path=None):
     """Print a comparison table to stdout and optionally save as CSV.
 

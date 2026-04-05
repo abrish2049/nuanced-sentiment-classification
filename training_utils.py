@@ -177,7 +177,7 @@ def run_neural_experiment(tag, model, train_loader, val_loader, test_loader,
             torch.save(model.state_dict(), ckpt)
             print(f"    New best model saved (Val F1={vl_f1:.4f})")
 
-    model.load_state_dict(torch.load(ckpt))
+    model.load_state_dict(torch.load(ckpt, map_location=device, weights_only=True))
     ts_loss, ts_acc, ts_f1, ts_preds, ts_labels = evaluate(
         model, test_loader, criterion
     )
