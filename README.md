@@ -1,6 +1,6 @@
 # From Binary to Nuanced: Three-Class Sentiment Analysis in Movie Reviews
 
-This repository contains the code for the paper *"From Binary to Nuanced: A Deep Learning Study of Three-Class Sentiment Analysis in Movie Reviews"* (Veliveli, Ventura, Maloon, Tedla — University of Virginia, 2025).
+This repository contains the code for the paper *"From Binary to Nuanced: A Deep Learning Study of Three-Class Sentiment Analysis in Movie Reviews"* (Veliveli, Ventura, Maloon, Tedla — University of Virginia, 2026).
 
 We reframe IMDb sentiment analysis as a three-class problem (bad / neutral / good) using rating annotations as weak supervision. Five model families are evaluated with ablations on label thresholds, class weighting, focal loss, fine-tuning strategy, sequence length, and GloVe embeddings across three random seeds.
 
@@ -191,7 +191,7 @@ All results are saved to `results/len{max_len}/` (or `results/len{max_len}/seed{
 
 ## Citation
 
-> S. Veliveli, A. J. Ventura, P. Maloon, A. Tedla, "From Binary to Nuanced: A Deep Learning Study of Three-Class Sentiment Analysis in Movie Reviews," University of Virginia, 2025.
+> S. Veliveli, A. J. Ventura, P. Maloon, A. Tedla, "From Binary to Nuanced: A Deep Learning Study of Three-Class Sentiment Analysis in Movie Reviews," University of Virginia, 2026.
 
 ---
 
