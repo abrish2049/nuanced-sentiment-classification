@@ -22,24 +22,15 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.metrics import confusion_matrix
 
-CLASSES     = ['bad', 'neutral', 'good']
-RESULTS_DIR = 'results'
-os.makedirs(RESULTS_DIR, exist_ok=True)
+from data_handler import CLASSES, RESULTS_DIR
 
 
-# ================================================================== #
-# CONSOLE HELPER                                                      #
-# ================================================================== #
 def print_section(title):
-    """Print a bold console section divider."""
     print("\n" + "=" * 60)
     print(title)
     print("=" * 60)
 
 
-# ================================================================== #
-# TRAINING CURVES                                                     #
-# ================================================================== #
 def plot_training_curves(history, tag, save_path):
     """Save a two-panel figure: Loss (left) and Macro-F1 (right).
 
@@ -78,12 +69,9 @@ def plot_training_curves(history, tag, save_path):
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.close()
-    print(f"[viz] Saved training curves → {save_path}")
+    print(f"Saved training curves -> {save_path}")
 
 
-# ================================================================== #
-# CONFUSION MATRIX                                                    #
-# ================================================================== #
 def plot_confusion_matrix(labels, preds, tag, save_path):
     """Save a seaborn heatmap of the confusion matrix.
 
@@ -104,12 +92,9 @@ def plot_confusion_matrix(labels, preds, tag, save_path):
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.close()
-    print(f"[viz] Saved confusion matrix → {save_path}")
+    print(f"Saved confusion matrix -> {save_path}")
 
 
-# ================================================================== #
-# FINAL PERFORMANCE COMPARISON                                        #
-# ================================================================== #
 def plot_performance(results_by_model, save_path):
     """Grouped bar chart: Accuracy, Macro-F1, and Neutral F1 per model variant.
 
@@ -134,7 +119,7 @@ def plot_performance(results_by_model, save_path):
             })
 
     if not rows:
-        print("[viz] No data to plot for performance comparison.")
+        print("No data to plot for performance comparison.")
         return
 
     df  = pd.DataFrame(rows)
@@ -157,12 +142,73 @@ def plot_performance(results_by_model, save_path):
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.close()
-    print(f"[viz] Saved performance chart → {save_path}")
+    print(f"Saved performance chart -> {save_path}")
 
 
-# ================================================================== #
-# COMPARISON TABLE (console + CSV)                                    #
-# ================================================================== #
+def plot_tfidf_features(lr_model, feature_names, save_path, top_n=15):
+    """Horizontal bar chart of top TF-IDF features per class.
+
+    Parameters
+    ----------
+    lr_model      : fitted LogisticRegression with coef_ attribute
+    feature_names : array-like of str — from vectorizer.get_feature_names_out()
+    save_path     : str — full path for the output PNG
+    top_n         : int — number of top features to show per class
+    """
+    classes = CLASSES
+    fig, axes = plt.subplots(1, len(classes), figsize=(6 * len(classes), 5),
+                             sharey=False)
+    fig.suptitle('Top TF-IDF Features per Class (weighted LR)', fontsize=13)
+
+    colors = {'bad': 'tomato', 'neutral': 'steelblue', 'good': 'seagreen'}
+
+    for ax, cls in zip(axes, classes):
+        i     = classes.index(cls)
+        coefs = lr_model.coef_[i]
+        top_i = np.argsort(coefs)[-top_n:][::-1]
+        words = [feature_names[j] for j in top_i]
+        vals  = coefs[top_i]
+
+        ax.barh(range(top_n), vals[::-1], color=colors[cls], alpha=0.8)
+        ax.set_yticks(range(top_n))
+        ax.set_yticklabels(words[::-1], fontsize=9)
+        ax.set_title(f"'{cls}'", fontsize=11)
+        ax.set_xlabel('Coefficient')
+        ax.grid(axis='x', alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"Saved TF-IDF feature chart -> {save_path}")
+
+
+def plot_rating_distribution(train_df, val_df, test_df, save_path):
+    """Bar chart of raw 1–10 rating counts across the full dataset.
+
+    Parameters
+    ----------
+    train_df, val_df, test_df : pd.DataFrame — the three data splits
+    save_path : str — full path for the output PNG
+    """
+    full_df = pd.concat([train_df, val_df, test_df], ignore_index=True)
+    counts  = full_df['rating'].value_counts().sort_index()
+
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.bar(counts.index, counts.values, color='steelblue', edgecolor='white')
+    ax.set_xticks(range(1, 11))
+    ax.set_xlabel('Rating (1–10)')
+    ax.set_ylabel('Number of Reviews')
+    ax.set_title('IMDb Rating Distribution')
+    ax.grid(axis='y', alpha=0.3)
+    max_count = counts.max()
+    for x, y in zip(counts.index, counts.values):
+        ax.text(x, y + max_count * 0.01, f'{y:,}', ha='center', fontsize=8)
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"Saved rating distribution -> {save_path}")
+
+
 def print_and_save_comparison(all_model_results, csv_path=None):
     """Print a comparison table to stdout and optionally save as CSV.
 
@@ -193,4 +239,4 @@ def print_and_save_comparison(all_model_results, csv_path=None):
 
     if csv_path:
         df.to_csv(csv_path, index=False)
-        print(f"\n[viz] Comparison table saved → {csv_path}")
+        print(f"\nComparison table saved -> {csv_path}")

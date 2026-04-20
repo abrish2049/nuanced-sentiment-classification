@@ -8,14 +8,14 @@ from sklearn.metrics import accuracy_score, classification_report, f1_score
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 from transformers import DistilBertTokenizer, DistilBertModel, get_linear_schedule_with_warmup
-from data_handler import CLASSES, RESULTS_DIR, device
+from data_handler import CLASSES, LABEL_MAP, RESULTS_DIR, device
 from visualization import plot_confusion_matrix, plot_training_curves
+from training_utils import save_history_csv
 
 BERT_MAX_LEN = 512
 BERT_BATCH   = 16
 BERT_LR      = 2e-5
 BERT_EPOCHS  = 5
-LABEL_MAP    = {'bad': 0, 'neutral': 1, 'good': 2}
 
 
 class DistilBERTDataset(Dataset):
@@ -83,12 +83,12 @@ def _train_epoch(model, loader, criterion, optimizer, scheduler, device):
         optimizer.step()
         scheduler.step()
 
-        total_loss += loss.item() * labels.size(0)
+        total_loss += loss.item()
         preds = logits.argmax(dim=1).cpu().tolist()
         all_preds.extend(preds)
         all_labels.extend(labels.cpu().tolist())
 
-    avg_loss = total_loss / len(loader.dataset)
+    avg_loss = total_loss / len(loader)
     acc      = accuracy_score(all_labels, all_preds)
     f1       = f1_score(all_labels, all_preds, average='macro', zero_division=0)
     return avg_loss, acc, f1
@@ -107,18 +107,18 @@ def _eval_epoch(model, loader, criterion, device):
         logits = model(input_ids, attention_mask)
         loss   = criterion(logits, labels)
 
-        total_loss += loss.item() * labels.size(0)
+        total_loss += loss.item()
         preds = logits.argmax(dim=1).cpu().tolist()
         all_preds.extend(preds)
         all_labels.extend(labels.cpu().tolist())
 
-    avg_loss = total_loss / len(loader.dataset)
+    avg_loss = total_loss / len(loader)
     acc      = accuracy_score(all_labels, all_preds)
     f1       = f1_score(all_labels, all_preds, average='macro', zero_division=0)
     return avg_loss, acc, f1, all_preds, all_labels
 
 
-def run_distilbert(train_df, val_df, test_df, weight_tensor):
+def run_distilbert(train_df, val_df, test_df, weight_tensor, max_len=512):
     print("\n" + "=" * 60)
     print("DistilBERT")
     print("=" * 60)
@@ -128,17 +128,17 @@ def run_distilbert(train_df, val_df, test_df, weight_tensor):
     train_dataset = DistilBERTDataset(
         train_df['review'].tolist(),
         train_df['sentiment'].map(LABEL_MAP).tolist(),
-        tokenizer, BERT_MAX_LEN
+        tokenizer, max_len
     )
     val_dataset = DistilBERTDataset(
         val_df['review'].tolist(),
         val_df['sentiment'].map(LABEL_MAP).tolist(),
-        tokenizer, BERT_MAX_LEN
+        tokenizer, max_len
     )
     test_dataset = DistilBERTDataset(
         test_df['review'].tolist(),
         test_df['sentiment'].map(LABEL_MAP).tolist(),
-        tokenizer, BERT_MAX_LEN
+        tokenizer, max_len
     )
 
     train_loader = DataLoader(train_dataset, batch_size=BERT_BATCH, shuffle=True,  num_workers=4)
@@ -156,8 +156,7 @@ def run_distilbert(train_df, val_df, test_df, weight_tensor):
         print("=" * 60)
 
         model     = DistilBERTClassifier(num_classes=3, dropout=0.3, freeze_bert=freeze).to(device)
-        criterion = nn.CrossEntropyLoss(weight=cw.to(device) if cw is not None else None) \
-                    if cw is not None else nn.CrossEntropyLoss()
+        criterion = nn.CrossEntropyLoss(weight=cw) if cw is not None else nn.CrossEntropyLoss()
         optimizer = optim.AdamW(model.parameters(), lr=BERT_LR, weight_decay=0.01)
 
         total_steps  = len(train_loader) * BERT_EPOCHS
@@ -168,8 +167,9 @@ def run_distilbert(train_df, val_df, test_df, weight_tensor):
             num_training_steps=total_steps
         )
 
+        run_tag     = f'distilbert_len{max_len}_{tag}'
         best_val_f1 = 0.0
-        ckpt        = os.path.join(RESULTS_DIR, f'distilbert_{tag}_best.pt')
+        ckpt        = os.path.join(RESULTS_DIR, f'{run_tag}_best.pt')
         history     = {
             'train_loss': [], 'val_loss': [],
             'train_acc':  [], 'val_acc':  [],
@@ -212,7 +212,7 @@ def run_distilbert(train_df, val_df, test_df, weight_tensor):
         print(f"\n  Training time: {elapsed:.1f} min")
 
         # --- Load best checkpoint and evaluate on test set ---
-        model.load_state_dict(torch.load(ckpt, map_location=device))
+        model.load_state_dict(torch.load(ckpt, map_location=device, weights_only=True))
         te_loss, te_acc, te_f1, te_preds, te_labels = _eval_epoch(
             model, test_loader, criterion, device
         )
@@ -223,13 +223,16 @@ def run_distilbert(train_df, val_df, test_df, weight_tensor):
         plot_training_curves(
             history,
             f'DistilBERT ({tag})',
-            os.path.join(RESULTS_DIR, f'distilbert_{tag}_curves.png')
+            os.path.join(RESULTS_DIR, f'{run_tag}_curves.png')
         )
         plot_confusion_matrix(
             te_labels, te_preds,
             f'DistilBERT ({tag}) — Confusion Matrix',
-            os.path.join(RESULTS_DIR, f'distilbert_{tag}_confusion.png')
+            os.path.join(RESULTS_DIR, f'{run_tag}_confusion.png')
         )
+
+        save_history_csv(history, run_tag,
+                         test_loss=te_loss, test_acc=te_acc, test_f1=te_f1)
 
         # --- Store results ---
         pcf1 = f1_score(te_labels, te_preds, average=None, labels=[0, 1, 2])
@@ -245,7 +248,7 @@ def run_distilbert(train_df, val_df, test_df, weight_tensor):
         }
 
 
-    out = os.path.join(RESULTS_DIR, 'distilbert_results.json')
+    out = os.path.join(RESULTS_DIR, f'distilbert_len{max_len}_results.json')
     with open(out, 'w') as f:
         json.dump(all_results, f, indent=2)
     print(f"\nResults saved to {out}")

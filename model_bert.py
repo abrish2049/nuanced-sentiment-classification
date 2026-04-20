@@ -1,7 +1,7 @@
 import json
 import os
 import time
-
+import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -9,15 +9,15 @@ from sklearn.metrics import accuracy_score, classification_report, f1_score
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 from transformers import BertTokenizer, BertModel, get_linear_schedule_with_warmup
-
-from data_handler import CLASSES, RESULTS_DIR, device
+from losses import FocalLoss
+from data_handler import CLASSES, LABEL_MAP, RESULTS_DIR, device
 from visualization import plot_confusion_matrix, plot_training_curves
+from training_utils import save_history_csv
 
 BERT_MAX_LEN = 512
 BERT_BATCH   = 16
 BERT_LR      = 2e-5
 BERT_EPOCHS  = 5
-LABEL_MAP    = {'bad': 0, 'neutral': 1, 'good': 2}
 
 
 class BERTDataset(Dataset):
@@ -93,7 +93,8 @@ class BERTClassifier(nn.Module):
         dropout : float, default=0.3
             Dropout probability for the classifier head.
         freeze_layers : int, default=0
-            Number of layers to freeze from the pre-trained BERT model.
+            Number of encoder layers to freeze (0=full fine-tune,
+            10=last-2-layers, 12=head-only).
         """
         super().__init__()
         self.bert = BertModel.from_pretrained('bert-base-uncased')
@@ -102,6 +103,9 @@ class BERTClassifier(nn.Module):
             for layer in self.bert.encoder.layer[:freeze_layers]:
                 for param in layer.parameters():
                     param.requires_grad = False
+        if freeze_layers >= 12:
+            for param in self.bert.embeddings.parameters():
+                param.requires_grad = False
 
         self.dropout = nn.Dropout(dropout)
         # BERT-base hidden size is always 768
@@ -127,7 +131,7 @@ class BERTClassifier(nn.Module):
         cls_output = outputs.last_hidden_state[:, 0, :]
         return self.classifier(self.dropout(cls_output))
 
-def run_bert(train_df, val_df, test_df, weight_tensor):
+def run_bert(train_df, val_df, test_df, weight_tensor, max_len=512):
     """
     Train and evaluate a BERT model on the given datasets.
 
@@ -141,6 +145,9 @@ def run_bert(train_df, val_df, test_df, weight_tensor):
         DataFrame containing the test data.
     weight_tensor : torch.Tensor or None
         Tensor of shape (num_classes,) containing class weights.
+    max_len : int, default=512
+        Maximum token sequence length. Controls the ablation over
+        {128, 256, 512}. Passed directly to BERTDataset
 
     Returns
     -------
@@ -156,17 +163,17 @@ def run_bert(train_df, val_df, test_df, weight_tensor):
     train_dataset = BERTDataset(
         train_df['review'].tolist(),
         train_df['sentiment'].map(LABEL_MAP).tolist(),
-        tokenizer, BERT_MAX_LEN
+        tokenizer, max_len
     )
     val_dataset = BERTDataset(
         val_df['review'].tolist(),
         val_df['sentiment'].map(LABEL_MAP).tolist(),
-        tokenizer, BERT_MAX_LEN
+        tokenizer, max_len
     )
     test_dataset = BERTDataset(
         test_df['review'].tolist(),
         test_df['sentiment'].map(LABEL_MAP).tolist(),
-        tokenizer, BERT_MAX_LEN
+        tokenizer, max_len
     )
 
     train_loader = DataLoader(train_dataset, batch_size = BERT_BATCH, shuffle = True,  num_workers = 4)
@@ -175,17 +182,29 @@ def run_bert(train_df, val_df, test_df, weight_tensor):
 
     all_results = {}
 
-    for tag, cw, freeze in [
-        ('no_weighting',   None,          0),
-        ('with_weighting', weight_tensor, 0)
+    for tag, cw, freeze, loss_type in [
+        ('no_weighting',   None,          0, 'ce'),
+        ('with_weighting', weight_tensor, 0, 'ce'),
+        ('focal',          weight_tensor, 0, 'focal'),
+        ('head_only',      weight_tensor, 12, 'ce'),
+        ('last2_layers',   weight_tensor, 10, 'ce'),
     ]:
         print("\n" + "=" * 60)
         print(f"BERT -- {tag}")
         print("=" * 60)
 
-        model     = BERTClassifier(num_classes=  3, dropout = 0.3, freeze_layers = freeze).to(device)
-        criterion = nn.CrossEntropyLoss(weight = cw) if cw is not None else nn.CrossEntropyLoss()
-        optimizer = optim.AdamW(model.parameters(), lr = BERT_LR, weight_decay = 0.01)
+        run_tag = f'bert_len{max_len}_{tag}'
+        
+        model     = BERTClassifier(num_classes=3, dropout=0.3, freeze_layers=freeze).to(device)
+
+        if loss_type == 'focal':
+            criterion = FocalLoss(gamma=2.0, weight=cw)
+        elif cw is not None:
+            criterion = nn.CrossEntropyLoss(weight=cw)
+        else:
+            criterion = nn.CrossEntropyLoss()
+
+        optimizer = optim.AdamW(model.parameters(), lr=BERT_LR, weight_decay=0.01)
 
         total_steps  = len(train_loader) * BERT_EPOCHS
         warmup_steps = int(0.1 * total_steps)
@@ -195,10 +214,11 @@ def run_bert(train_df, val_df, test_df, weight_tensor):
         )
 
         best_val_f1 = 0
-        ckpt        = os.path.join(RESULTS_DIR, f'bert_{tag}_best.pt')
+        ckpt = os.path.join(RESULTS_DIR, f'{run_tag}_best.pt')
         history     = {'train_loss': [], 'val_loss': [],
-                       'train_acc':  [], 'val_acc':  [],
-                       'train_f1':   [], 'val_f1':   []}
+                    'train_acc':  [], 'val_acc':  [],
+                    'train_f1':   [], 'val_f1':   []
+        }
 
         t0 = time.time()
 
@@ -264,8 +284,8 @@ def run_bert(train_df, val_df, test_df, weight_tensor):
             history['val_f1'].append(vl_f1)
 
             print(f"  Epoch {epoch+1:>2}/{BERT_EPOCHS} | "
-                  f"Train Loss {tr_loss:.4f} Acc {tr_acc:.4f} F1 {tr_f1:.4f} | "
-                  f"Val Loss {vl_loss:.4f} Acc {vl_acc:.4f} F1 {vl_f1:.4f}")
+                    f"Train Loss {tr_loss:.4f} Acc {tr_acc:.4f} F1 {tr_f1:.4f} | "
+                    f"Val Loss {vl_loss:.4f} Acc {vl_acc:.4f} F1 {vl_f1:.4f}")
 
             if vl_f1 > best_val_f1:
                 best_val_f1 = vl_f1
@@ -274,7 +294,7 @@ def run_bert(train_df, val_df, test_df, weight_tensor):
 
         elapsed = (time.time() - t0) / 60
 
-        model.load_state_dict(torch.load(ckpt, map_location=device))
+        model.load_state_dict(torch.load(ckpt, map_location=device, weights_only=True))
         model.eval()
         ts_loss, ts_preds, ts_labels = 0.0, [], []
 
@@ -299,12 +319,36 @@ def run_bert(train_df, val_df, test_df, weight_tensor):
         print(f"\n  BERT ({tag}) Test → Acc: {ts_acc:.4f} | Macro-F1: {ts_f1:.4f}")
         print(classification_report(ts_labels, ts_preds,
                                     target_names = CLASSES, digits = 4))
+        
+        error_df = pd.DataFrame({
+            'review':    test_df['review'].values,
+            'rating':    test_df['rating'].values,
+            'true':      [CLASSES[l] for l in ts_labels],
+            'predicted': [CLASSES[p] for p in ts_preds],
+            'correct':   [l == p for l, p in zip(ts_labels, ts_preds)]
+        })
+        errors = error_df[~error_df['correct']]
+        errors.to_csv(
+            os.path.join(RESULTS_DIR, f'{run_tag}_errors.csv'), index=False
+        )
+        neutral_errors = errors[errors['true'] == 'neutral']
+        print(f"\n  Neutral misclassifications: {len(neutral_errors)}")
+        print(neutral_errors['predicted'].value_counts().to_string())
+        print(f"\n  Neutral errors by rating:")
+        print(neutral_errors['rating'].value_counts().sort_index().to_string())        
 
-        curve_path = os.path.join(RESULTS_DIR, f'bert_{tag}_curves.png')
-        plot_training_curves(history, f"BERT ({tag})", curve_path)
+        if tag == 'with_weighting':
+            analyze_attention(model, tokenizer, test_df, device,
+                              ts_preds=ts_preds, ts_labels=ts_labels)
+            
+        curve_path = os.path.join(RESULTS_DIR, f'{run_tag}_curves.png')
+        plot_training_curves(history, f"BERT ({tag}, len={max_len})", curve_path)
 
-        cm_path = os.path.join(RESULTS_DIR, f'bert_{tag}_confusion.png')
-        plot_confusion_matrix(ts_labels, ts_preds, f"BERT ({tag})", cm_path)
+        cm_path = os.path.join(RESULTS_DIR, f'{run_tag}_confusion.png')
+        plot_confusion_matrix(ts_labels, ts_preds, f"BERT ({tag}, len={max_len})", cm_path)
+
+        save_history_csv(history, run_tag,
+                         test_loss=ts_loss, test_acc=ts_acc, test_f1=ts_f1)
 
         pcf1 = f1_score(ts_labels, ts_preds, average = None, labels = [0, 1, 2])
         all_results[tag] = {
@@ -317,8 +361,109 @@ def run_bert(train_df, val_df, test_df, weight_tensor):
             },
             'training_time_minutes': round(elapsed, 2)
         }
-    out = os.path.join(RESULTS_DIR, 'bert_results.json')
+    out = os.path.join(RESULTS_DIR, f'bert_len{max_len}_results.json')
     with open(out, 'w') as f:
         json.dump(all_results, f, indent = 2)
     print(f"\nResults saved to {out}")
     return all_results
+
+def analyze_attention(model, tokenizer, test_df, device,
+                      ts_preds=None, ts_labels=None,
+                      n_correct=5, n_wrong=5, save_dir=None):
+    """Save CLS attention bar charts for neutral test reviews.
+
+    Produces two groups:
+      - correctly classified neutral reviews  (true=neutral, pred=neutral)
+      - misclassified neutral reviews         (true=neutral, pred!=neutral)
+
+    Parameters
+    ----------
+    model      : BERTClassifier — loaded with best checkpoint
+    tokenizer  : BertTokenizer
+    test_df    : pd.DataFrame — test split with 'sentiment' column
+    device     : torch.device
+    ts_preds   : list of int — model predictions on test set
+    ts_labels  : list of int — ground-truth labels on test set
+    n_correct  : int — how many correctly classified neutral reviews to plot
+    n_wrong    : int — how many misclassified neutral reviews to plot
+    save_dir   : str — where to save the PNG files
+    """
+    import matplotlib.pyplot as plt
+
+    if save_dir is None:
+        save_dir = RESULTS_DIR
+
+    model.eval()
+    # Switch to eager attention so output_attentions=True works (SDPA doesn't support it)
+    model.bert.config._attn_implementation = "eager"
+
+    NEUTRAL_IDX = LABEL_MAP['neutral']
+
+    # Build review groups based on predictions if available
+    if ts_preds is not None and ts_labels is not None:
+        df = test_df.reset_index(drop=True).copy()
+        df['_pred'] = ts_preds
+        df['_true'] = ts_labels
+        neutral_correct = (
+            df[(df['sentiment'] == 'neutral') & (df['_pred'] == NEUTRAL_IDX)]
+            ['review'].tolist()[:n_correct]
+        )
+        neutral_wrong = (
+            df[(df['sentiment'] == 'neutral') & (df['_pred'] != NEUTRAL_IDX)]
+            ['review'].tolist()[:n_wrong]
+        )
+    else:
+        reviews = (test_df[test_df['sentiment'] == 'neutral']['review']
+                   .tolist()[:n_correct + n_wrong])
+        neutral_correct = reviews[:n_correct]
+        neutral_wrong   = reviews[n_correct:]
+
+    examples = (
+        [(text, 'correct') for text in neutral_correct] +
+        [(text, 'wrong')   for text in neutral_wrong]
+    )
+    print(f"[attention] {len(neutral_correct)} correctly-classified, "
+          f"{len(neutral_wrong)} misclassified neutral reviews")
+
+    for i, (text, status) in enumerate(examples):
+        enc = tokenizer(
+            text,
+            max_length=64,       # short enough that the bar chart is readable
+            truncation=True,
+            padding='max_length',
+            return_tensors='pt'
+        )
+        input_ids      = enc['input_ids'].to(device)
+        attention_mask = enc['attention_mask'].to(device)
+
+        with torch.no_grad():
+            outputs = model.bert(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                output_attentions=True
+            )
+
+        # outputs.attentions: tuple of (1, num_heads, seq_len, seq_len) per layer
+        # take the last layer, average across all 12 heads, take the CLS row
+        last_layer_attn = outputs.attentions[-1]       # (1, 12, seq_len, seq_len)
+        avg_heads       = last_layer_attn[0].mean(0)   # (seq_len, seq_len)
+        cls_attn        = avg_heads[0].cpu().numpy()   # CLS attention over all tokens
+
+        # trim to actual (non-padding) tokens
+        real_len = attention_mask[0].sum().item()
+        tokens   = tokenizer.convert_ids_to_tokens(input_ids[0].cpu())[:real_len]
+        cls_attn = cls_attn[:real_len]
+
+        fig, ax = plt.subplots(figsize=(max(8, real_len * 0.4), 2))
+        ax.bar(range(real_len), cls_attn)
+        ax.set_xticks(range(real_len))
+        ax.set_xticklabels(tokens, rotation=90, fontsize=7)
+        ax.set_title(f'CLS attention — neutral ({status}) example {i}')
+        plt.tight_layout()
+        plt.savefig(
+            os.path.join(save_dir, f'bert_attention_neutral_{status}_{i}.png'),
+            dpi=150, bbox_inches='tight'
+        )
+        plt.close()
+
+    print(f"[attention] Saved {len(examples)} attention plots → {save_dir}")

@@ -1,12 +1,14 @@
 import json
 import os
 
+import numpy as np
+import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, classification_report, f1_score
 
 from data_handler import CLASSES, RANDOM_SEED, RESULTS_DIR
-from visualization import plot_confusion_matrix
+from visualization import plot_confusion_matrix, plot_tfidf_features
 
 
 def run_logistic_regression(train_df, val_df, test_df, weight_dict):
@@ -27,7 +29,8 @@ def run_logistic_regression(train_df, val_df, test_df, weight_dict):
     y_test  = test_df['sentiment']
 
     all_results = {}
-
+    lr_for_analysis = None
+    
     for tag, cw in [('no_weighting', None), ('with_weighting', weight_dict)]:
         print(f"\n-- LR ({tag}) --")
         lr = LogisticRegression(
@@ -35,6 +38,10 @@ def run_logistic_regression(train_df, val_df, test_df, weight_dict):
             max_iter=1000, random_state=RANDOM_SEED, class_weight=cw
         )
         lr.fit(X_train, y_train)
+        
+        if tag == 'with_weighting':
+            lr_for_analysis = lr
+        
         preds = lr.predict(X_test)
         acc   = accuracy_score(y_test, preds)
         mf1   = f1_score(y_test, preds, average='macro')
@@ -56,6 +63,35 @@ def run_logistic_regression(train_df, val_df, test_df, weight_dict):
             }
         }
 
+    # Feature analysis — top TF-IDF features per class (weighted model)
+    print("\n-- Top TF-IDF features per class (weighted model) --")
+    feature_names = vectorizer.get_feature_names_out()
+    for i, cls in enumerate(CLASSES):
+        coefs   = lr_for_analysis.coef_[i]
+        top_pos = np.argsort(coefs)[-20:][::-1]
+        print(f"\n  '{cls}' — most positive features:")
+        print("  ", [feature_names[j] for j in top_pos])
+
+    tfidf_chart_path = os.path.join(RESULTS_DIR, 'lr_tfidf_features.png')
+    plot_tfidf_features(lr_for_analysis, feature_names, tfidf_chart_path)
+
+    # Error analysis — look at misclassified examples, especially neutrals
+    print("\n-- Error analysis (weighted model) --")
+    error_df = pd.DataFrame({
+        'review':    test_df['review'].values,
+        'rating':    test_df['rating'].values,
+        'true':      y_test.values,
+        'predicted': lr_for_analysis.predict(X_test)
+    })
+    error_df['correct'] = error_df['true'] == error_df['predicted']
+    errors = error_df[~error_df['correct']]
+    errors.to_csv(os.path.join(RESULTS_DIR, 'lr_errors.csv'), index=False)
+    neutral_errors = errors[errors['true'] == 'neutral']
+    print(f"\n  Neutral misclassifications: {len(neutral_errors)}")
+    print(neutral_errors['predicted'].value_counts().to_string())
+    print(f"\n  Neutral errors by rating:")
+    print(neutral_errors['rating'].value_counts().sort_index().to_string())
+
     # binary reference — drop neutral, run bad vs good only
     print("\n-- Binary reference (bad vs good, neutral dropped) --")
     bin_train = train_df[train_df['sentiment'] != 'neutral']
@@ -75,8 +111,6 @@ def run_logistic_regression(train_df, val_df, test_df, weight_dict):
 
     out = os.path.join(RESULTS_DIR, 'logistic_regression_results.json')
     with open(out, 'w') as f:
-        json.dump(all_results, f, indent=2)
-    with open('logistic_regression_results.json', 'w') as f:
         json.dump(all_results, f, indent=2)
     print(f"\nResults saved to {out}")
     return all_results
